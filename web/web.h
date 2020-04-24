@@ -24,28 +24,24 @@
 #ifndef WEB_H
 #define WEB_H
 
-#if !defined(WEB_THREAD_STACK_SIZE)
-#define WEB_THREAD_STACK_SIZE           (16 * 1024)
+#ifndef WEB_THREAD_STACK_SIZE
+#define WEB_THREAD_STACK_SIZE   1024
 #endif
 
-#if !defined(WEB_THREAD_PORT)
-#define WEB_THREAD_PORT                 443
+#ifndef WEB_THREAD_PORT
+#define WEB_THREAD_PORT         80
 #endif
 
-#if !defined(WEB_THREAD_PRIORITY)
-#define WEB_THREAD_PRIORITY             (LOWPRIO + 2)
+#ifndef WEB_THREAD_PRIORITY
+#define WEB_THREAD_PRIORITY     (LOWPRIO + 2)
 #endif
 
-#if !defined(WEB_MAX_PATH_SIZE)
-#define WEB_MAX_PATH_SIZE               128
-#endif
-
-extern THD_WORKING_AREA(wa_https_server, WEB_THREAD_STACK_SIZE);
+extern THD_WORKING_AREA(wa_http_server, WEB_THREAD_STACK_SIZE);
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-  THD_FUNCTION(https_server, p);
+  THD_FUNCTION(http_server, p);
 #ifdef __cplusplus
 }
 #endif

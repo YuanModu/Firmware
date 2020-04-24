@@ -29,9 +29,9 @@
 
 #include "portab.h"
 
-/*===========================================================================*/
-/* Command line related.                                                     */
-/*===========================================================================*/
+/*
+ * Command line related.
+ */
 
 #define SHELL_WA_SIZE   THD_WORKING_AREA_SIZE(2048)
 
@@ -44,9 +44,9 @@ static const ShellConfig shell_cfg1 = {
   commands
 };
 
-/*===========================================================================*/
-/* Main and generic code.                                                    */
-/*===========================================================================*/
+/*
+ * Main and generic code.
+ */
 
 static thread_t *shelltp = NULL;
 
@@ -131,8 +131,8 @@ int main(void) {
   /*
    * Creates the HTTPS thread (it changes priority internally).
    */
-  chThdCreateStatic(wa_https_server, sizeof(wa_https_server), NORMALPRIO + 1,
-                    https_server, NULL);
+  chThdCreateStatic(wa_http_server, sizeof(wa_http_server), NORMALPRIO + 1,
+                    http_server, NULL);
 
   /*
    * Normal main() thread activity, handling shell start/exit.
