@@ -26,7 +26,12 @@
  * @{
  */
 
+#include <string.h>
+
 #include "ch.h"
+
+#include "hal.h" /* chprintf */
+#include "chprintf.h" /* chprintf */
 
 #include "lwip/opt.h"
 #include "lwip/arch.h"
@@ -36,12 +41,133 @@
 
 #if LWIP_NETCONN
 
+static char url_buffer[WEB_MAX_PATH_SIZE];
+
+#define HEXTOI(x) (isdigit(x) ? (x) - '0' : (x) - 'a' + 10)
+#define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
+
+/**
+ * @brief   Decodes an URL sting.
+ * @note    The string is terminated by a zero or a separator.
+ *
+ * @param[in] url       encoded URL string
+ * @param[out] buf      buffer for the processed string
+ * @param[in] max       max number of chars to copy into the buffer
+ * @return              The conversion status.
+ * @retval false        string converted.
+ * @retval true         the string was not valid or the buffer overflowed
+ *
+ * @notapi
+ */
+static bool decode_url(const char *url, char *buf, size_t max) {
+  while (true) {
+    int h, l;
+    unsigned c = *url++;
+
+    switch (c) {
+    case 0:
+    case '\r':
+    case '\n':
+    case '\t':
+    case ' ':
+    case '?':
+      *buf = 0;
+      return false;
+    case '.':
+      if (max <= 1)
+        return true;
+
+      h = *(url + 1);
+      if (h == '.')
+        return true;
+
+      break;
+    case '%':
+      if (max <= 1)
+        return true;
+
+      h = tolower((int)*url++);
+      if (h == 0)
+        return true;
+      if (!isxdigit(h))
+        return true;
+
+      l = tolower((int)*url++);
+      if (l == 0)
+        return true;
+      if (!isxdigit(l))
+        return true;
+
+      c = (char)((HEXTOI(h) << 4) | HEXTOI(l));
+      break;
+    default:
+      if (max <= 1)
+        return true;
+
+      if (!isalnum(c) && (c != '_') && (c != '-') && (c != '+') &&
+          (c != '/'))
+        return true;
+
+      break;
+    }
+
+    *buf++ = c;
+    max--;
+  }
+}
+//
+// static const char http_resp_ok[] =
+//   "HTTP/1.1 200\r\n"
+//   "\r\n";
+//
+// static const char http_resp_serverfault[] =
+//   "HTTP/1.1 500\r\n"
+//   "\r\n";
+
+static const char http_resp_notimp[] =
+  "HTTP/1.1 501\r\n"
+  "\r\n";
+
+// static const char http_resp_redir[] =
+//   "HTTP/1.1 301\r\n"
+//   "Location: /\r\n"
+//   "\r\n";
+//
+// static const char http_resp_badreq[] =
+//   "HTTP/1.1 400˝\r\n"
+//   "\r\n";
+
+static const unsigned int http_html_hdr_len = 45;
 static const char http_html_hdr[] = "HTTP/1.1 200 OK\r\nContent-type: text/html\r\n\r\n";
+
+static const unsigned int http_index_html_len = 134;
 static const char http_index_html[] = "<html><head><title>Congrats!</title></head><body><h1>Welcome to our lwIP HTTP server!</h1><p>This is a small test page.</body></html>";
+
+struct http_file {
+	char path[10];
+	const char *data;
+  const int *len;
+	const char * (*get_handler)(const struct http_file *);
+	const char * (*post_handler)(const struct http_file *);
+};
+
+static const char * http_handle_static(const struct http_file *file) {
+  chprintf((BaseSequentialStream*)&SD3,
+    "\r\npath: %s\r\n"
+    "\r\ndata: %s\r\n"
+    "\r\nlen: %d\r\n"
+    ,file->path, file->data, *file->len
+  );
+  return file->data;
+}
+
+static const struct http_file http_files[] = {
+  {"/", http_index_html, &http_index_html_len, http_handle_static, NULL},
+};
 
 static void http_server_serve(struct netconn *conn) {
   struct netbuf *inbuf;
-  char *buf;
+  char *buf, *method, *url;
   u16_t buflen;
   err_t err;
 
@@ -52,23 +178,29 @@ static void http_server_serve(struct netconn *conn) {
   if (err == ERR_OK) {
     netbuf_data(inbuf, (void **)&buf, &buflen);
 
-    /* Is this an HTTP GET command? (only check the first 5 chars, since
-    there are other formats for GET, and we're keeping it very simple )*/
-    if (buflen>=5 &&
-        buf[0]=='G' &&
-        buf[1]=='E' &&
-        buf[2]=='T' &&
-        buf[3]==' ' &&
-        buf[4]=='/' ) {
+    buf[buflen-1] = 0;
 
-      /* Send the HTML header
-             * subtract 1 from the size, since we dont send the \0 in the string
-             * NETCONN_NOCOPY: our data is const static, so no need to copy it
-       */
-      netconn_write(conn, http_html_hdr, sizeof(http_html_hdr)-1, NETCONN_NOCOPY);
+    method = strtok(buf, " \r\n");
+    url = strtok(NULL, " \r\n");
 
-      /* Send our HTML page */
-      netconn_write(conn, http_index_html, sizeof(http_index_html)-1, NETCONN_NOCOPY);
+    if (!decode_url(url, url_buffer, WEB_MAX_PATH_SIZE)) {
+      for (unsigned int i = 0; i < ARRAY_SIZE(http_files); i++) {
+        if (!strcmp(url, http_files[i].path)) {
+          if (!strcmp(method, "GET") && http_files[i].get_handler) {
+            netconn_write(conn,
+                          http_html_hdr,
+                          sizeof(http_html_hdr)-1,
+                          NETCONN_NOCOPY);
+            netconn_write(conn,
+                          http_files[i].get_handler(&http_files[i]),
+                          *(http_files[i].len)-1,
+                          NETCONN_NOCOPY);
+          }
+          if (!strcmp(method, "POST") && http_files[i].post_handler) {
+            http_files[i].post_handler(&http_files[i]);
+          }
+        }
+      }
     }
   }
   /* Close the connection (server closes in HTTP) */
