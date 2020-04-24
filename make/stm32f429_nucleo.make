@@ -10,7 +10,7 @@ endif
 
 # C specific options here (added to USE_OPT).
 ifeq ($(USE_COPT),)
-  USE_COPT = -DWOLFSSL_USER_SETTINGS
+  USE_COPT =
 endif
 
 # C++ specific options here (added to USE_OPT).
@@ -115,7 +115,6 @@ include $(CHIBIOS)/test/oslib/oslib_test.mk
 include $(CHIBIOS)/os/hal/lib/streams/streams.mk
 include $(CHIBIOS)/os/various/shell/shell.mk
 include $(CHIBIOS)/os/various/lwip_bindings/lwip.mk
-include $(CHIBIOS)/os/various/wolfssl_bindings/wolfssl.mk
 
 # Define linker script file here
 LDSCRIPT= $(STARTUPLD)/STM32F429xI.ld

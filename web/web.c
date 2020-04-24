@@ -152,12 +152,6 @@ struct http_file {
 };
 
 static const char * http_handle_static(const struct http_file *file) {
-  chprintf((BaseSequentialStream*)&SD3,
-    "\r\npath: %s\r\n"
-    "\r\ndata: %s\r\n"
-    "\r\nlen: %d\r\n"
-    ,file->path, file->data, *file->len
-  );
   return file->data;
 }
 
