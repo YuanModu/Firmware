@@ -125,7 +125,17 @@ CSRC = $(ALLCSRC) \
        $(TESTSRC) \
        $(CHIBIOS)/os/various/evtimer.c \
        $(CONFDIR)/portab.c \
-       main.c web/web.c web/cert.c
+       main.c \
+			 web/web.c \
+			 web/ui/bootstrap.min.css.c \
+			 web/ui/bootstrap.min.js.c\
+			 web/ui/Chart.bundle.min.js.c \
+			 web/ui/css.http.c \
+			 web/ui/html.http.c \
+			 web/ui/index.html.c \
+			 web/ui/jquery-3.4.1.slim.min.js.c \
+			 web/ui/js.http.c \
+			 popper.min.js.c
 
 # C++ sources that can be compiled in ARM or THUMB mode depending on the global
 # setting.
