@@ -57,10 +57,11 @@ extern const unsigned char jquery_3_4_1_slim_min_js[];
 extern const unsigned int jquery_3_4_1_slim_min_js_len;
 extern const unsigned char js_http[];
 extern const unsigned int js_http_len;
+extern const unsigned char json_http[];
+extern const unsigned int json_http_len;
 extern const unsigned char popper_min_js[];
 extern const unsigned int popper_min_js_len;
 
-#define HEXTOI(x) (isdigit(x) ? (x) - '0' : (x) - 'a' + 10)
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
 
 //
@@ -90,64 +91,87 @@ struct file {
   const unsigned char *data;
 };
 
-struct file ui_html_http = {
+static struct file ui_html_http = {
   .len = &html_http_len,
   .data = html_http,
 };
 
-struct file ui_css_http = {
+static struct file ui_css_http = {
   .len = &css_http_len,
   .data = css_http,
 };
 
-struct file ui_js_http = {
+static struct file ui_js_http = {
   .len = &js_http_len,
   .data = js_http,
 };
 
-struct file ui_index_html = {
+static struct file ui_json_http = {
+  .len = &json_http_len,
+  .data = json_http,
+};
+
+static struct file ui_index_html = {
   .len = &index_html_len,
   .data = index_html,
 };
 
-struct file ui_bootstrap_min_css = {
+static struct file ui_bootstrap_min_css = {
   .len = &bootstrap_min_css_len,
   .data = bootstrap_min_css,
 };
 
-struct file ui_bootstrap_min_js = {
+static struct file ui_bootstrap_min_js = {
   .len = &bootstrap_min_js_len,
   .data = bootstrap_min_js,
 };
 
-struct file ui_Chart_bundle_min_js = {
+static struct file ui_Chart_bundle_min_js = {
   .len = &Chart_bundle_min_js_len,
   .data = Chart_bundle_min_js,
 };
 
-struct file ui_jquery_3_4_1_slim_min_js = {
+static struct file ui_jquery_3_4_1_slim_min_js = {
   .len = &jquery_3_4_1_slim_min_js_len,
   .data = jquery_3_4_1_slim_min_js,
 };
 
-struct file ui_popper_min_js = {
+static struct file ui_popper_min_js = {
   .len = &popper_min_js_len,
   .data = popper_min_js,
 };
 
 struct http_response {
 	char path[32];
-  const struct file *head;
-	const struct file *body;
-	const struct http_response * (*get_handler)(const struct http_response *);
-	const struct http_response * (*post_handler)(const struct http_response *);
+  struct file *head;
+	struct file *body;
+	struct http_response * (*get_handler)(struct http_response *);
+	struct http_response * (*post_handler)(struct http_response *);
 };
 
-static const struct http_response * http_handle_static(const struct http_response *response) {
+static struct http_response * http_handle_static (struct http_response *response) {
   return response;
 }
 
-static const struct http_response http_responses[] = {
+
+static unsigned char sbuf[128];
+static unsigned int slen;
+static struct file body = {
+  .len = &slen,
+  .data = sbuf,
+};
+
+static struct http_response * http_handle_status(struct http_response *response) {
+  slen = chsnprintf((char *)sbuf, ARRAY_SIZE(sbuf),
+            "{"
+            "\"satatus\": \"ok\""
+            "}"
+          );
+  response->body = &body;
+  return response;
+}
+
+static struct http_response http_responses[] = {
   {
     .path = "/",
     .head = &ui_html_http,
@@ -190,6 +214,13 @@ static const struct http_response http_responses[] = {
     .get_handler = http_handle_static,
     .post_handler = NULL
   },
+  {
+    .path = "/status",
+    .head = &ui_json_http,
+    .body = NULL,
+    .get_handler = http_handle_status,
+    .post_handler = NULL,
+  },
 };
 
 static void http_server_serve(struct netconn *conn) {
@@ -212,18 +243,22 @@ static void http_server_serve(struct netconn *conn) {
 
     for (unsigned int i = 0; i < ARRAY_SIZE(http_responses); i++) {
       if (!strcmp(url, http_responses[i].path)) {
+        struct http_response *response = NULL;
         if (!strcmp(method, "GET") && http_responses[i].get_handler) {
-          netconn_write(conn,
-                        http_responses[i].get_handler(&http_responses[i])->head->data,
-                        *(http_responses[i].get_handler(&http_responses[i])->head->len),
-                        NETCONN_NOCOPY);
-          netconn_write(conn,
-                        http_responses[i].get_handler(&http_responses[i])->body->data,
-                        *(http_responses[i].get_handler(&http_responses[i])->body->len),
-                        NETCONN_NOCOPY);
+          response = http_responses[i].get_handler(&http_responses[i]);
         }
         if (!strcmp(method, "POST") && http_responses[i].post_handler) {
-          http_responses[i].post_handler(&http_responses[i]);
+          response = http_responses[i].post_handler(&http_responses[i]);
+        }
+        if (response){
+          netconn_write(conn,
+                        response->head->data,
+                        *(response->head->len),
+                        NETCONN_NOCOPY);
+          netconn_write(conn,
+                        response->body->data,
+                        *(response->body->len),
+                        NETCONN_NOCOPY);
         }
       }
     }

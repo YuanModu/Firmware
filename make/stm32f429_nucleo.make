@@ -135,6 +135,7 @@ CSRC = $(ALLCSRC) \
 			 web/ui/index.html.c \
 			 web/ui/jquery-3.4.1.slim.min.js.c \
 			 web/ui/js.http.c \
+			 web/ui/json.http.c \
 			 popper.min.js.c
 
 # C++ sources that can be compiled in ARM or THUMB mode depending on the global
