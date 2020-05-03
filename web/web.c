@@ -26,6 +26,7 @@
  * @{
  */
 
+#define _GNU_SOURCE
 #include <string.h>
 
 #include "ch.h"
@@ -39,193 +40,396 @@
 
 #include "web.h"
 
+#include "jsmn.h"
+
+#include "ui.h"
+
 #if LWIP_NETCONN
 
-extern const unsigned char bootstrap_min_css[];
-extern const unsigned int bootstrap_min_css_len;
-extern const unsigned char bootstrap_min_js[];
-extern const unsigned int bootstrap_min_js_len;
-extern const unsigned char Chart_bundle_min_js[];
-extern const unsigned int Chart_bundle_min_js_len;
-extern const unsigned char css_http[];
-extern const unsigned int css_http_len;
-extern const unsigned char html_http[];
-extern const unsigned int html_http_len;
-extern const unsigned char index_html[];
-extern const unsigned int index_html_len;
-extern const unsigned char jquery_3_4_1_slim_min_js[];
-extern const unsigned int jquery_3_4_1_slim_min_js_len;
-extern const unsigned char js_http[];
-extern const unsigned int js_http_len;
-extern const unsigned char json_http[];
-extern const unsigned int json_http_len;
-extern const unsigned char popper_min_js[];
-extern const unsigned int popper_min_js_len;
+#define MAX_HEADER_COUNT 16
+#define MAX_HEADER_NAME_SIZE 64
+#define MAX_HEADER_VALUE_SIZE 64
+#define MAX_VIEW_PATH_SIZE 128
+#define MAX_REQUEST_URL_SIZE 128
+#define MAX_REQUEST_BODY_SIZE 1024
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
 
-//
-// static const char http_resp_ok[] =
-//   "HTTP/1.1 200\r\n"
-//   "\r\n";
-//
-// static const char http_resp_serverfault[] =
-//   "HTTP/1.1 500\r\n"
-//   "\r\n";
-//
-// static const char http_resp_notimp[] =
-//   "HTTP/1.1 501\r\n"
-//   "\r\n";
-//
-// static const char http_resp_redir[] =
-//   "HTTP/1.1 301\r\n"
-//   "Location: /\r\n"
-//   "\r\n";
-//
-// static const char http_resp_badreq[] =
-//   "HTTP/1.1 400˝\r\n"
-//   "\r\n";
+typedef enum method {
+  METHOD_NONE,
+  GET,
+  POST
+} method_t;
 
-struct file {
-  const unsigned int *len;
-  const unsigned char *data;
-};
+typedef enum protocol {
+  PROTOCOL_NONE,
+  HTTP_1_0,
+  HTTP_1_1,
+  HTTP_2_0
+} protocol_t;
 
-static struct file ui_html_http = {
-  .len = &html_http_len,
-  .data = html_http,
-};
+typedef enum status {
+  STATUS_NONE,
+  OK_200,
+  NOT_FOUND_404
+} status_t;
 
-static struct file ui_css_http = {
-  .len = &css_http_len,
-  .data = css_http,
-};
+typedef enum type {
+  TYPE_NONE,
+  TEXT_HTML,
+  TEXT_CSS,
+  APPLICATION_JAVASCRIPT,
+  APPLICATION_JSON
+} type_t;
 
-static struct file ui_js_http = {
-  .len = &js_http_len,
-  .data = js_http,
-};
+typedef struct header {
+  char name[MAX_HEADER_NAME_SIZE];
+  char value[MAX_HEADER_VALUE_SIZE];
+  struct header *next;
+} header_t;
 
-static struct file ui_json_http = {
-  .len = &json_http_len,
-  .data = json_http,
-};
+typedef struct request {
+  method_t method;
+  char *url;
+  protocol_t protocol;
+  header_t *headers;
+  char *body;
+} request_t;
 
-static struct file ui_index_html = {
-  .len = &index_html_len,
-  .data = index_html,
-};
+typedef struct response {
+  const char *head;
+  const int *head_len;
+  const unsigned  char *body;
+  const unsigned int *body_len;
+} response_t;
 
-static struct file ui_bootstrap_min_css = {
-  .len = &bootstrap_min_css_len,
-  .data = bootstrap_min_css,
-};
+typedef struct view {
+	char path[MAX_VIEW_PATH_SIZE];
+  file_t *file;
+  response_t *response;
+	struct view * (*get_handler)(struct view *);
+	struct view * (*post_handler)(struct view *);
+} view_t;
 
-static struct file ui_bootstrap_min_js = {
-  .len = &bootstrap_min_js_len,
-  .data = bootstrap_min_js,
-};
+static header_t headers[MAX_HEADER_COUNT];
 
-static struct file ui_Chart_bundle_min_js = {
-  .len = &Chart_bundle_min_js_len,
-  .data = Chart_bundle_min_js,
-};
+// static header_t *headers_create(void) {
+//   return headers;
+// }
 
-static struct file ui_jquery_3_4_1_slim_min_js = {
-  .len = &jquery_3_4_1_slim_min_js_len,
-  .data = jquery_3_4_1_slim_min_js,
-};
-
-static struct file ui_popper_min_js = {
-  .len = &popper_min_js_len,
-  .data = popper_min_js,
-};
-
-struct http_response {
-	char path[32];
-  struct file *head;
-	struct file *body;
-	struct http_response * (*get_handler)(struct http_response *);
-	struct http_response * (*post_handler)(struct http_response *);
-};
-
-static struct http_response * http_handle_static (struct http_response *response) {
-  return response;
+static const char *request_header_get(const char * c) {
+  header_t *h = headers;
+  while (h) {
+    if (memcmp(h->name, c, strlen(c)) == 0) {
+      return h->value;
+    }
+    h = h->next;
+  }
+  return NULL;
 }
 
-
-static unsigned char sbuf[128];
-static unsigned int slen;
-static struct file body = {
-  .len = &slen,
-  .data = sbuf,
+static request_t *request = &(request_t) {
+  .method = METHOD_NONE,
+  .url = (char [MAX_REQUEST_URL_SIZE]) {},
+  .protocol =  PROTOCOL_NONE,
+  .headers = NULL,
+  .body = (char [MAX_REQUEST_BODY_SIZE]) {},
 };
 
-static struct http_response * http_handle_status(struct http_response *response) {
+static response_t *response = &(response_t) {
+  .head = NULL,
+  .head_len = NULL,
+  .body = NULL,
+  .body_len = NULL,
+};
+
+static char js[256];
+
+static const char *method (method_t m) {
+  static const char *methods[] = {
+    [METHOD_NONE] = NULL,
+    [GET] = "GET",
+    [POST] = "POST",
+  };
+  return methods[m];
+}
+
+static const char *protocol(protocol_t p) {
+  static const char *protocols[] = {
+    [PROTOCOL_NONE] = NULL,
+    [HTTP_1_0] = "HTTP/1.0",
+    [HTTP_1_1] = "HTTP/1.1",
+    [HTTP_2_0] = "HTTP/2.0",
+  };
+  return protocols[p];
+}
+
+static const char *status(status_t s) {
+  static const char *status[] = {
+    [STATUS_NONE] = NULL,
+    [OK_200] = "200 OK",
+    [NOT_FOUND_404] = "404 Not Found",
+  };
+  return status[s];
+}
+
+// static const char *type(type_t t) {
+//   static const char *types[] = {
+//     [TYPE_NONE] = NULL,
+//     [TEXT_HTML] = "Content-Type: text/html",
+//     [TEXT_CSS] = "Content-Type: text/css",
+//     [APPLICATION_JAVASCRIPT] = "Content-Type: application/javascript",
+//     [APPLICATION_JSON] = "Content-Type: application/json",
+//   };
+//   return types[t];
+// };
+
+// static int jsoneq(const char *json, jsmntok_t *tok, const char *s) {
+//   if (tok->type == JSMN_STRING && (int)strlen(s) == tok->end - tok->start &&
+//       strncmp(json + tok->start, s, tok->end - tok->start) == 0) {
+//     return 0;
+//   }
+//   return -1;
+// }
+
+
+static char sbuf[128];
+static int slen;
+static view_t *http_handle_static(view_t *view) {
   slen = chsnprintf((char *)sbuf, ARRAY_SIZE(sbuf),
-            "{"
-            "\"satatus\": \"ok\""
-            "}"
-          );
-  response->body = &body;
-  return response;
+    "%s %s\r\n"
+    "Content-Type: %s\r\n"
+    "Connection: close\r\n"
+    "\r\n"
+    ,protocol(HTTP_1_1)
+    ,status(OK_200)
+    ,view->file->type
+  );
+  response->head = sbuf;
+  response->head_len = &slen;
+  chprintf((BaseSequentialStream*)&SD3,
+    "head_len:\r\n"
+    "%d\r\n"
+    "head:\r\n"
+    "%s\r\n"
+    "strlen:\r\n"
+    "%d\r\n"
+    ,*(response->head_len)
+    ,response->head
+    ,strlen(response->head)
+  );
+  response->body = view->file->data;
+  response->body_len = view->file->len;
+  view->response = response;
+  return view;
 }
 
-static struct http_response http_responses[] = {
+
+// static unsigned char sbuf[128];
+// static unsigned int slen;
+// file_t body = {
+//   .len = &slen,
+//   .data = sbuf,
+// };
+
+static view_t *http_handle_status(view_t *view) {
+  slen = chsnprintf((char *)sbuf, ARRAY_SIZE(sbuf),
+    "%s %s\r\n"
+    "Content-Type: %s\r\n"
+    "Connection: close\r\n"
+    "\r\n"
+    ,protocol(HTTP_1_1)
+    ,status(OK_200)
+    ,view->file->type
+  );
+
+  return view;
+}
+
+// static view_t * http_handle_profile_get(view_t *view) {
+//   return view;
+// }
+//
+// static view_t * http_handle_profile_post(view_t *view) {
+//   return view;
+// }
+
+
+extern file_t file_index_html;
+extern file_t file_bootstrap_min_css;
+extern file_t file_bootstrap_min_js;
+extern file_t file_Chart_bundle_min_js;
+extern file_t file_custom_js;
+extern file_t file_jquery_3_4_1_min_js;
+extern file_t file_popper_min_js;
+static view_t views[] = {
   {
     .path = "/",
-    .head = &ui_html_http,
-    .body = &ui_index_html,
+    .file = &file_index_html,
     .get_handler = http_handle_static,
     .post_handler = NULL,
   },
   {
     .path = "/bootstrap.min.css",
-    .head = &ui_css_http,
-    .body = &ui_bootstrap_min_css,
+    .file = &file_bootstrap_min_css,
     .get_handler = http_handle_static,
     .post_handler = NULL
   },
   {
     .path = "/bootstrap.min.js",
-    .head = &ui_js_http,
-    .body = &ui_bootstrap_min_js,
+    .file = &file_bootstrap_min_js,
     .get_handler = http_handle_static,
     .post_handler = NULL,
   },
   {
     .path = "/Chart.bundle.min.js",
-    .head = &ui_js_http,
-    .body = &ui_Chart_bundle_min_js,
+    .file = &file_Chart_bundle_min_js,
     .get_handler = http_handle_static,
     .post_handler = NULL,
   },
   {
-    .path = "/jquery-3.4.1.slim.min.js",
-    .head = &ui_js_http,
-    .body = &ui_jquery_3_4_1_slim_min_js,
+    .path = "/custom.js",
+    .file = &file_custom_js,
+    .get_handler = http_handle_static,
+    .post_handler = NULL,
+  },
+  {
+    .path = "/jquery-3.4.1.min.js",
+    .file = &file_jquery_3_4_1_min_js,
     .get_handler = http_handle_static,
     .post_handler = NULL,
   },
   {
     .path = "/popper.min.js",
-    .head = &ui_js_http,
-    .body = &ui_popper_min_js,
+    .file = &file_popper_min_js,
     .get_handler = http_handle_static,
     .post_handler = NULL
   },
-  {
-    .path = "/status",
-    .head = &ui_json_http,
-    .body = NULL,
-    .get_handler = http_handle_status,
-    .post_handler = NULL,
-  },
+  // {
+  //   .path = "/profile",
+  //   .head = &ui_js_http,
+  //   .body = NULL,
+  //   .get_handler = http_handle_profile_get,
+  //   .post_handler = http_handle_profile_post,
+  // },
+  // {
+  //   .path = "/status",
+  //   .head = &ui_json_http,
+  //   .body = NULL,
+  //   .get_handler = http_handle_status,
+  //   .post_handler = NULL,
+  // },
 };
+
+void request_parse(const char *raw) {
+  chprintf((BaseSequentialStream*)&SD3,
+    "\r\nREQUEST:\r\n"
+    "%s\r\n",
+    raw
+  );
+  request_t *r = request;
+  // header_t *h = headers_create();
+
+  size_t method_len = strcspn(raw, " ");
+  if (memcmp(raw, method(GET), strlen(method(GET))) == 0) {
+    r->method = GET;
+  } else if (memcmp(raw, method(POST), strlen(method(POST))) == 0) {
+    r->method = POST;
+  } else {
+    r->method = METHOD_NONE;
+  }
+  raw += method_len + 1;
+
+  size_t url_len = strcspn(raw, " ");
+  memcpy(r->url, raw, url_len);
+  r->url[url_len] = '\0';
+  raw += url_len + 1;
+
+  size_t protocol_len = strcspn(raw, "\r\n");
+  if (memcmp(raw, protocol(HTTP_1_0), strlen(protocol(HTTP_1_0))) == 0) {
+    r->protocol = HTTP_1_0;
+  } else if (memcmp(raw, protocol(HTTP_1_1), strlen(protocol(HTTP_1_1))) == 0) {
+    r->protocol = HTTP_1_1;
+  } else if (memcmp(raw, protocol(HTTP_2_0), strlen(protocol(HTTP_2_0))) == 0) {
+    r->protocol = HTTP_2_0;
+  } else {
+    r->protocol = PROTOCOL_NONE;
+  }
+
+  raw += protocol_len + 2;
+
+  while (raw[0]!='\r' || raw[1]!='\n') {
+    static unsigned int i = 0;
+
+    size_t name_len = strcspn(raw, ":");
+    if (i < MAX_HEADER_COUNT) {
+      memcpy(headers[i].name, raw, name_len);
+      headers[i].name[name_len] = '\0';
+    }
+    raw += name_len + 1;
+    while (*raw == ' ') {
+      raw++;
+    }
+
+    size_t value_len = strcspn(raw, "\r\n");
+    if (i < MAX_HEADER_COUNT) {
+      memcpy(headers[i].value, raw, value_len);
+      headers[i].value[value_len] = '\0';
+    }
+    raw += value_len + 2;
+
+    if (i < MAX_HEADER_COUNT) {
+      headers[i].next = NULL;
+      if (i > 0) {
+        headers[i-1].next = &headers[i];
+      }
+    }
+
+    i++;
+  }
+
+  r->headers = headers;
+  // while (h) {
+  //   printf(
+  //     "%s: %s\r\n"
+  //     ,h->name
+  //     ,h->value
+  //   );
+  //   h = h->next;
+  // }
+
+  raw += 2;
+
+  size_t body_len = strlen(raw);
+  memcpy(r->body, raw, body_len);
+  r->body[body_len] = '\0';
+
+  const char *header = request_header_get("User-Agent");
+  chprintf((BaseSequentialStream*)&SD3,
+    "method: %s\r\n"
+    "url: %s\r\n"
+    "protocol: %s\r\n"
+    "User-Agent: %s\r\n"
+    "body: %s\r\n"
+    ,method(r->method)
+    ,r->url
+    ,protocol(r->protocol)
+    ,header
+    ,r->body
+  );
+
+  size_t js_len = strcspn(r->body, "}");
+  memcpy(js, r->body, js_len + 1);
+  // js_len = strcspn(r->body, "}");
+  // char *js = NULL;
+  // memcpy(js, r->body, js_len);
+  // printf("%s\n", js);
+
+}
 
 static void http_server_serve(struct netconn *conn) {
   struct netbuf *inbuf;
-  char *buf, *method, *url;
+  char *buf;
   u16_t buflen;
   err_t err;
 
@@ -235,29 +439,25 @@ static void http_server_serve(struct netconn *conn) {
 
   if (err == ERR_OK) {
     netbuf_data(inbuf, (void **)&buf, &buflen);
+    request_parse((const char *)buf);
 
-    buf[buflen-1] = 0;
-
-    method = strtok(buf, " \r\n");
-    url = strtok(NULL, " \r\n");
-
-    for (unsigned int i = 0; i < ARRAY_SIZE(http_responses); i++) {
-      if (!strcmp(url, http_responses[i].path)) {
-        struct http_response *response = NULL;
-        if (!strcmp(method, "GET") && http_responses[i].get_handler) {
-          response = http_responses[i].get_handler(&http_responses[i]);
+    for (unsigned int i = 0; i < ARRAY_SIZE(views); i++) {
+      if (!strcmp(request->url, views[i].path)) {
+        view_t *view = NULL;
+        if ((request->method == GET) && views[i].get_handler) {
+          view = views[i].get_handler(&views[i]);
         }
-        if (!strcmp(method, "POST") && http_responses[i].post_handler) {
-          response = http_responses[i].post_handler(&http_responses[i]);
+        if ((request->method == POST) && views[i].post_handler) {
+          view = views[i].post_handler(&views[i]);
         }
-        if (response){
+        if (view){
           netconn_write(conn,
-                        response->head->data,
-                        *(response->head->len),
+                        view->response->head,
+                        *(view->response->head_len),
                         NETCONN_NOCOPY);
           netconn_write(conn,
-                        response->body->data,
-                        *(response->body->len),
+                        view->response->body,
+                        *(view->response->body_len),
                         NETCONN_NOCOPY);
         }
       }

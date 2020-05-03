@@ -130,13 +130,10 @@ CSRC = $(ALLCSRC) \
 			 web/ui/bootstrap.min.css.c \
 			 web/ui/bootstrap.min.js.c\
 			 web/ui/Chart.bundle.min.js.c \
-			 web/ui/css.http.c \
-			 web/ui/html.http.c \
 			 web/ui/index.html.c \
-			 web/ui/jquery-3.4.1.slim.min.js.c \
-			 web/ui/js.http.c \
-			 web/ui/json.http.c \
-			 popper.min.js.c
+			 web/ui/jquery-3.4.1.min.js.c \
+			 web/ui/popper.min.js.c \
+			 web/ui/custom.js.c
 
 # C++ sources that can be compiled in ARM or THUMB mode depending on the global
 # setting.
@@ -149,7 +146,7 @@ ASMSRC = $(ALLASMSRC)
 ASMXSRC = $(ALLXASMSRC)
 
 # Inclusion directories.
-INCDIR = $(CONFDIR) $(ALLINC) $(TESTINC) ./cfg
+INCDIR = $(CONFDIR) $(ALLINC) $(TESTINC) ./cfg ./jsmn ./web/ui
 
 # Define C warning options here.
 CWARN = -Wall -Wextra -Wundef -Wstrict-prototypes
