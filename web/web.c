@@ -46,6 +46,7 @@
 
 #if LWIP_NETCONN
 
+#define MAX_BUFFER_SIZE 128
 #define MAX_HEADER_COUNT 16
 #define MAX_HEADER_NAME_SIZE 64
 #define MAX_HEADER_VALUE_SIZE 64
@@ -82,9 +83,14 @@ typedef enum type {
   APPLICATION_JSON
 } type_t;
 
+typedef struct buffer {
+  char *data;
+  int len;
+} buffer_t;
+
 typedef struct header {
-  char name[MAX_HEADER_NAME_SIZE];
-  char value[MAX_HEADER_VALUE_SIZE];
+  char *name;
+  char *value;
   struct header *next;
 } header_t;
 
@@ -99,8 +105,8 @@ typedef struct request {
 typedef struct response {
   const char *head;
   const int *head_len;
-  const unsigned  char *body;
-  const unsigned int *body_len;
+  const char *body;
+  const int *body_len;
 } response_t;
 
 typedef struct view {
@@ -113,10 +119,6 @@ typedef struct view {
 
 static header_t headers[MAX_HEADER_COUNT];
 
-// static header_t *headers_create(void) {
-//   return headers;
-// }
-
 static const char *request_header_get(const char * c) {
   header_t *h = headers;
   while (h) {
@@ -127,6 +129,16 @@ static const char *request_header_get(const char * c) {
   }
   return NULL;
 }
+
+static buffer_t *head_buffer = &(buffer_t) {
+  .data = (char [MAX_BUFFER_SIZE]) {},
+  .len = 0,
+};
+
+static buffer_t *body_buffer = &(buffer_t) {
+  .data = (char [MAX_BUFFER_SIZE]) {},
+  .len = 0,
+};
 
 static request_t *request = &(request_t) {
   .method = METHOD_NONE,
@@ -192,11 +204,8 @@ static const char *status(status_t s) {
 //   return -1;
 // }
 
-
-static char sbuf[128];
-static int slen;
 static view_t *http_handle_static(view_t *view) {
-  slen = chsnprintf((char *)sbuf, ARRAY_SIZE(sbuf),
+  head_buffer->len = chsnprintf(head_buffer->data, MAX_BUFFER_SIZE,
     "%s %s\r\n"
     "Content-Type: %s\r\n"
     "Connection: close\r\n"
@@ -205,44 +214,36 @@ static view_t *http_handle_static(view_t *view) {
     ,status(OK_200)
     ,view->file->type
   );
-  response->head = sbuf;
-  response->head_len = &slen;
-  chprintf((BaseSequentialStream*)&SD3,
-    "head_len:\r\n"
-    "%d\r\n"
-    "head:\r\n"
-    "%s\r\n"
-    "strlen:\r\n"
-    "%d\r\n"
-    ,*(response->head_len)
-    ,response->head
-    ,strlen(response->head)
-  );
-  response->body = view->file->data;
-  response->body_len = view->file->len;
+  response->head = head_buffer->data;
+  response->head_len = &(head_buffer->len);
+  response->body = (const char *)view->file->data;
+  response->body_len = (const int *)view->file->len;
   view->response = response;
   return view;
 }
 
 
-// static unsigned char sbuf[128];
-// static unsigned int slen;
-// file_t body = {
-//   .len = &slen,
-//   .data = sbuf,
-// };
-
 static view_t *http_handle_status(view_t *view) {
-  slen = chsnprintf((char *)sbuf, ARRAY_SIZE(sbuf),
+  head_buffer->len = chsnprintf(head_buffer->data, MAX_BUFFER_SIZE,
     "%s %s\r\n"
-    "Content-Type: %s\r\n"
+    "Content-Type: application/json\r\n"
     "Connection: close\r\n"
     "\r\n"
     ,protocol(HTTP_1_1)
     ,status(OK_200)
-    ,view->file->type
   );
+  response->head = head_buffer->data;
+  response->head_len = &(head_buffer->len);
 
+  body_buffer->len= chsnprintf(body_buffer->data, MAX_BUFFER_SIZE
+    ,(const char *)view->file->data
+    ,protocol(HTTP_1_1)
+    ,status(OK_200)
+  );
+  response->body = body_buffer->data;
+  response->body_len = &(body_buffer->len);
+
+  view->response = response;
   return view;
 }
 
@@ -262,6 +263,7 @@ extern file_t file_Chart_bundle_min_js;
 extern file_t file_custom_js;
 extern file_t file_jquery_3_4_1_min_js;
 extern file_t file_popper_min_js;
+extern file_t file_status_json;
 static view_t views[] = {
   {
     .path = "/",
@@ -312,21 +314,20 @@ static view_t views[] = {
   //   .get_handler = http_handle_profile_get,
   //   .post_handler = http_handle_profile_post,
   // },
-  // {
-  //   .path = "/status",
-  //   .head = &ui_json_http,
-  //   .body = NULL,
-  //   .get_handler = http_handle_status,
-  //   .post_handler = NULL,
-  // },
+  {
+    .path = "/status",
+    .file = &file_status_json,
+    .get_handler = http_handle_status,
+    .post_handler = NULL,
+  },
 };
 
 void request_parse(const char *raw) {
-  chprintf((BaseSequentialStream*)&SD3,
-    "\r\nREQUEST:\r\n"
-    "%s\r\n",
-    raw
-  );
+  // chprintf((BaseSequentialStream*)&SD3,
+  //   "\r\nREQUEST:\r\n"
+  //   "%s\r\n",
+  //   raw
+  // );
   request_t *r = request;
   // header_t *h = headers_create();
 
@@ -405,18 +406,18 @@ void request_parse(const char *raw) {
   r->body[body_len] = '\0';
 
   const char *header = request_header_get("User-Agent");
-  chprintf((BaseSequentialStream*)&SD3,
-    "method: %s\r\n"
-    "url: %s\r\n"
-    "protocol: %s\r\n"
-    "User-Agent: %s\r\n"
-    "body: %s\r\n"
-    ,method(r->method)
-    ,r->url
-    ,protocol(r->protocol)
-    ,header
-    ,r->body
-  );
+  // chprintf((BaseSequentialStream*)&SD3,
+  //   "method: %s\r\n"
+  //   "url: %s\r\n"
+  //   "protocol: %s\r\n"
+  //   "User-Agent: %s\r\n"
+  //   "body: %s\r\n"
+  //   ,method(r->method)
+  //   ,r->url
+  //   ,protocol(r->protocol)
+  //   ,header
+  //   ,r->body
+  // );
 
   size_t js_len = strcspn(r->body, "}");
   memcpy(js, r->body, js_len + 1);
