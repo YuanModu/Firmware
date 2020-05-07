@@ -46,7 +46,7 @@
 
 #if LWIP_NETCONN
 
-#define MAX_BUFFER_SIZE 128
+#define MAX_BUFFER_SIZE 256
 #define MAX_HEADER_COUNT 16
 #define MAX_HEADER_NAME_SIZE 64
 #define MAX_HEADER_VALUE_SIZE 64
@@ -83,10 +83,10 @@ typedef enum type {
   APPLICATION_JSON
 } type_t;
 
-typedef struct buffer {
+typedef struct string {
   char *data;
   int len;
-} buffer_t;
+} string_t;
 
 typedef struct header {
   char *name;
@@ -103,10 +103,8 @@ typedef struct request {
 } request_t;
 
 typedef struct response {
-  const char *head;
-  const int *head_len;
-  const char *body;
-  const int *body_len;
+  string_t *head;
+  string_t *body;
 } response_t;
 
 typedef struct view {
@@ -130,13 +128,18 @@ static const char *request_header_get(const char * c) {
   return NULL;
 }
 
-static buffer_t *head_buffer = &(buffer_t) {
+static string_t *head_buffer = &(string_t) {
   .data = (char [MAX_BUFFER_SIZE]) {},
   .len = 0,
 };
 
-static buffer_t *body_buffer = &(buffer_t) {
+static string_t *body_buffer = &(string_t) {
   .data = (char [MAX_BUFFER_SIZE]) {},
+  .len = 0,
+};
+
+static string_t *file = &(string_t) {
+  .data = NULL,
   .len = 0,
 };
 
@@ -150,9 +153,7 @@ static request_t *request = &(request_t) {
 
 static response_t *response = &(response_t) {
   .head = NULL,
-  .head_len = NULL,
   .body = NULL,
-  .body_len = NULL,
 };
 
 static char js[256];
@@ -214,10 +215,12 @@ static view_t *http_handle_static(view_t *view) {
     ,status(OK_200)
     ,view->file->type
   );
-  response->head = head_buffer->data;
-  response->head_len = &(head_buffer->len);
-  response->body = (const char *)view->file->data;
-  response->body_len = (const int *)view->file->len;
+
+  file->data = (char *)view->file->data;
+  file->len = *(view->file->len);
+
+  response->head = head_buffer;
+  response->body = file;
   view->response = response;
   return view;
 }
@@ -232,28 +235,26 @@ static view_t *http_handle_status(view_t *view) {
     ,protocol(HTTP_1_1)
     ,status(OK_200)
   );
-  response->head = head_buffer->data;
-  response->head_len = &(head_buffer->len);
 
   body_buffer->len= chsnprintf(body_buffer->data, MAX_BUFFER_SIZE
     ,(const char *)view->file->data
     ,protocol(HTTP_1_1)
     ,status(OK_200)
   );
-  response->body = body_buffer->data;
-  response->body_len = &(body_buffer->len);
 
+  response->head = head_buffer;
+  response->body = body_buffer;
   view->response = response;
   return view;
 }
 
-// static view_t * http_handle_profile_get(view_t *view) {
-//   return view;
-// }
-//
-// static view_t * http_handle_profile_post(view_t *view) {
-//   return view;
-// }
+static view_t * http_handle_profile_get(view_t *view) {
+  return view;
+}
+
+static view_t * http_handle_profile_post(view_t *view) {
+  return view;
+}
 
 
 extern file_t file_index_html;
@@ -264,6 +265,7 @@ extern file_t file_custom_js;
 extern file_t file_jquery_3_4_1_min_js;
 extern file_t file_popper_min_js;
 extern file_t file_status_json;
+extern file_t file_profile_json;
 static view_t views[] = {
   {
     .path = "/",
@@ -307,13 +309,12 @@ static view_t views[] = {
     .get_handler = http_handle_static,
     .post_handler = NULL
   },
-  // {
-  //   .path = "/profile",
-  //   .head = &ui_js_http,
-  //   .body = NULL,
-  //   .get_handler = http_handle_profile_get,
-  //   .post_handler = http_handle_profile_post,
-  // },
+  {
+    .path = "/profile",
+    .file = &file_profile_json,
+    .get_handler = http_handle_profile_get,
+    .post_handler = http_handle_profile_post,
+  },
   {
     .path = "/status",
     .file = &file_status_json,
@@ -333,28 +334,28 @@ void request_parse(const char *raw) {
 
   size_t method_len = strcspn(raw, " ");
   if (memcmp(raw, method(GET), strlen(method(GET))) == 0) {
-    r->method = GET;
+    request->method = GET;
   } else if (memcmp(raw, method(POST), strlen(method(POST))) == 0) {
-    r->method = POST;
+    request->method = POST;
   } else {
-    r->method = METHOD_NONE;
+    request->method = METHOD_NONE;
   }
   raw += method_len + 1;
 
   size_t url_len = strcspn(raw, " ");
-  memcpy(r->url, raw, url_len);
-  r->url[url_len] = '\0';
+  memcpy(request->url, raw, url_len);
+  request->url[url_len] = '\0';
   raw += url_len + 1;
 
   size_t protocol_len = strcspn(raw, "\r\n");
   if (memcmp(raw, protocol(HTTP_1_0), strlen(protocol(HTTP_1_0))) == 0) {
-    r->protocol = HTTP_1_0;
+    request->protocol = HTTP_1_0;
   } else if (memcmp(raw, protocol(HTTP_1_1), strlen(protocol(HTTP_1_1))) == 0) {
-    r->protocol = HTTP_1_1;
+    request->protocol = HTTP_1_1;
   } else if (memcmp(raw, protocol(HTTP_2_0), strlen(protocol(HTTP_2_0))) == 0) {
-    r->protocol = HTTP_2_0;
+    request->protocol = HTTP_2_0;
   } else {
-    r->protocol = PROTOCOL_NONE;
+    request->protocol = PROTOCOL_NONE;
   }
 
   raw += protocol_len + 2;
@@ -389,7 +390,7 @@ void request_parse(const char *raw) {
     i++;
   }
 
-  r->headers = headers;
+  request->headers = headers;
   // while (h) {
   //   printf(
   //     "%s: %s\r\n"
@@ -402,28 +403,28 @@ void request_parse(const char *raw) {
   raw += 2;
 
   size_t body_len = strlen(raw);
-  memcpy(r->body, raw, body_len);
-  r->body[body_len] = '\0';
+  memcpy(request->body, raw, body_len);
+  request->body[body_len] = '\0';
 
-  const char *header = request_header_get("User-Agent");
+  // const char *header = request_header_get("User-Agent");
   // chprintf((BaseSequentialStream*)&SD3,
   //   "method: %s\r\n"
   //   "url: %s\r\n"
   //   "protocol: %s\r\n"
   //   "User-Agent: %s\r\n"
   //   "body: %s\r\n"
-  //   ,method(r->method)
-  //   ,r->url
-  //   ,protocol(r->protocol)
+  //   ,method(request->method)
+  //   ,request->url
+  //   ,protocol(request->protocol)
   //   ,header
-  //   ,r->body
+  //   ,request->body
   // );
 
-  size_t js_len = strcspn(r->body, "}");
-  memcpy(js, r->body, js_len + 1);
-  // js_len = strcspn(r->body, "}");
+  size_t js_len = strcspn(request->body, "}");
+  memcpy(js, request->body, js_len + 1);
+  // js_len = strcspn(request->body, "}");
   // char *js = NULL;
-  // memcpy(js, r->body, js_len);
+  // memcpy(js, request->body, js_len);
   // printf("%s\n", js);
 
 }
@@ -453,12 +454,12 @@ static void http_server_serve(struct netconn *conn) {
         }
         if (view){
           netconn_write(conn,
-                        view->response->head,
-                        *(view->response->head_len),
+                        view->response->head->data,
+                        view->response->head->len,
                         NETCONN_NOCOPY);
           netconn_write(conn,
-                        view->response->body,
-                        *(view->response->body_len),
+                        view->response->body->data,
+                        view->response->body->len,
                         NETCONN_NOCOPY);
         }
       }
