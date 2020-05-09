@@ -75,14 +75,6 @@ typedef enum status {
   NOT_FOUND_404
 } status_t;
 
-typedef enum type {
-  TYPE_NONE,
-  TEXT_HTML,
-  TEXT_CSS,
-  APPLICATION_JAVASCRIPT,
-  APPLICATION_JSON
-} type_t;
-
 typedef struct string {
   char *data;
   int len;
@@ -186,24 +178,13 @@ static const char *status(status_t s) {
   return status[s];
 }
 
-// static const char *type(type_t t) {
-//   static const char *types[] = {
-//     [TYPE_NONE] = NULL,
-//     [TEXT_HTML] = "Content-Type: text/html",
-//     [TEXT_CSS] = "Content-Type: text/css",
-//     [APPLICATION_JAVASCRIPT] = "Content-Type: application/javascript",
-//     [APPLICATION_JSON] = "Content-Type: application/json",
-//   };
-//   return types[t];
-// };
-
-// static int jsoneq(const char *json, jsmntok_t *tok, const char *s) {
-//   if (tok->type == JSMN_STRING && (int)strlen(s) == tok->end - tok->start &&
-//       strncmp(json + tok->start, s, tok->end - tok->start) == 0) {
-//     return 0;
-//   }
-//   return -1;
-// }
+static int jsoneq(const char *json, jsmntok_t *tok, const char *s) {
+  if (tok->type == JSMN_STRING && (int)strlen(s) == tok->end - tok->start &&
+      strncmp(json + tok->start, s, tok->end - tok->start) == 0) {
+    return 0;
+  }
+  return -1;
+}
 
 static view_t *http_handle_static(view_t *view) {
   head_buffer->len = chsnprintf(head_buffer->data, MAX_BUFFER_SIZE,
@@ -224,7 +205,6 @@ static view_t *http_handle_static(view_t *view) {
   view->response = response;
   return view;
 }
-
 
 static view_t *http_handle_status(view_t *view) {
   head_buffer->len = chsnprintf(head_buffer->data, MAX_BUFFER_SIZE,
@@ -248,11 +228,48 @@ static view_t *http_handle_status(view_t *view) {
   return view;
 }
 
-static view_t * http_handle_profile_get(view_t *view) {
+static view_t *http_handle_profile_get(view_t *view) {
+  head_buffer->len = chsnprintf(head_buffer->data, MAX_BUFFER_SIZE,
+    "%s %s\r\n"
+    "Content-Type: application/json\r\n"
+    "Connection: close\r\n"
+    "\r\n"
+    ,protocol(HTTP_1_1)
+    ,status(OK_200)
+  );
+
+  body_buffer->len= chsnprintf(body_buffer->data, MAX_BUFFER_SIZE,
+    "Profile Get"
+  );
+
+  response->head = head_buffer;
+  response->body = body_buffer;
+  view->response = response;
   return view;
 }
 
-static view_t * http_handle_profile_post(view_t *view) {
+static view_t *http_handle_profile_post(view_t *view) {
+  head_buffer->len = chsnprintf(head_buffer->data, MAX_BUFFER_SIZE,
+    "%s %s\r\n"
+    "Content-Type: application/json\r\n"
+    "Connection: close\r\n"
+    "\r\n"
+    ,protocol(HTTP_1_1)
+    ,status(OK_200)
+  );
+
+  body_buffer->len= chsnprintf(body_buffer->data, MAX_BUFFER_SIZE,
+    "{"
+    "\"Host\": \"%s\","
+    "\"UserAgent\": \"%s\""
+    "}"
+    ,request_header_get("Host")
+    ,request_header_get("User-Agent")
+  );
+
+  response->head = head_buffer;
+  response->body = body_buffer;
+  view->response = response;
   return view;
 }
 
@@ -264,8 +281,6 @@ extern file_t file_Chart_bundle_min_js;
 extern file_t file_custom_js;
 extern file_t file_jquery_3_4_1_min_js;
 extern file_t file_popper_min_js;
-extern file_t file_status_json;
-extern file_t file_profile_json;
 static view_t views[] = {
   {
     .path = "/",
@@ -311,13 +326,13 @@ static view_t views[] = {
   },
   {
     .path = "/profile",
-    .file = &file_profile_json,
+    .file = NULL,
     .get_handler = http_handle_profile_get,
     .post_handler = http_handle_profile_post,
   },
   {
     .path = "/status",
-    .file = &file_status_json,
+    .file = NULL,
     .get_handler = http_handle_status,
     .post_handler = NULL,
   },
