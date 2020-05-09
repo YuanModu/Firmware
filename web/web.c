@@ -48,8 +48,8 @@
 
 #define MAX_BUFFER_SIZE 256
 #define MAX_HEADER_COUNT 16
-#define MAX_HEADER_NAME_SIZE 64
-#define MAX_HEADER_VALUE_SIZE 64
+#define MAX_HEADER_NAME_SIZE 32
+#define MAX_HEADER_VALUE_SIZE 128
 #define MAX_VIEW_PATH_SIZE 128
 #define MAX_REQUEST_URL_SIZE 128
 #define MAX_REQUEST_BODY_SIZE 1024
@@ -324,14 +324,6 @@ static view_t views[] = {
 };
 
 void request_parse(const char *raw) {
-  // chprintf((BaseSequentialStream*)&SD3,
-  //   "\r\nREQUEST:\r\n"
-  //   "%s\r\n",
-  //   raw
-  // );
-  request_t *r = request;
-  // header_t *h = headers_create();
-
   size_t method_len = strcspn(raw, " ");
   if (memcmp(raw, method(GET), strlen(method(GET))) == 0) {
     request->method = GET;
@@ -357,76 +349,38 @@ void request_parse(const char *raw) {
   } else {
     request->protocol = PROTOCOL_NONE;
   }
-
   raw += protocol_len + 2;
 
+  int i = 0;
   while (raw[0]!='\r' || raw[1]!='\n') {
-    static unsigned int i = 0;
-
     size_t name_len = strcspn(raw, ":");
-    if (i < MAX_HEADER_COUNT) {
-      memcpy(headers[i].name, raw, name_len);
-      headers[i].name[name_len] = '\0';
-    }
+    memcpy(headers[i].name, raw, name_len);
+    headers[i].name[name_len] = '\0';
     raw += name_len + 1;
+
     while (*raw == ' ') {
       raw++;
     }
 
     size_t value_len = strcspn(raw, "\r\n");
-    if (i < MAX_HEADER_COUNT) {
-      memcpy(headers[i].value, raw, value_len);
-      headers[i].value[value_len] = '\0';
-    }
+    memcpy(headers[i].value, raw, value_len);
+    headers[i].value[value_len] = '\0';
     raw += value_len + 2;
 
-    if (i < MAX_HEADER_COUNT) {
-      headers[i].next = NULL;
-      if (i > 0) {
-        headers[i-1].next = &headers[i];
-      }
+    headers[i].next = NULL;
+    if (i > 0) {
+      headers[i-1].next = &headers[i];
     }
 
     i++;
   }
+  raw += 2;
 
   request->headers = headers;
-  // while (h) {
-  //   printf(
-  //     "%s: %s\r\n"
-  //     ,h->name
-  //     ,h->value
-  //   );
-  //   h = h->next;
-  // }
-
-  raw += 2;
 
   size_t body_len = strlen(raw);
   memcpy(request->body, raw, body_len);
   request->body[body_len] = '\0';
-
-  // const char *header = request_header_get("User-Agent");
-  // chprintf((BaseSequentialStream*)&SD3,
-  //   "method: %s\r\n"
-  //   "url: %s\r\n"
-  //   "protocol: %s\r\n"
-  //   "User-Agent: %s\r\n"
-  //   "body: %s\r\n"
-  //   ,method(request->method)
-  //   ,request->url
-  //   ,protocol(request->protocol)
-  //   ,header
-  //   ,request->body
-  // );
-
-  size_t js_len = strcspn(request->body, "}");
-  memcpy(js, request->body, js_len + 1);
-  // js_len = strcspn(request->body, "}");
-  // char *js = NULL;
-  // memcpy(js, request->body, js_len);
-  // printf("%s\n", js);
-
 }
 
 static void http_server_serve(struct netconn *conn) {
