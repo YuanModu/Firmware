@@ -89,8 +89,8 @@ typedef struct string {
 } string_t;
 
 typedef struct header {
-  char *name;
-  char *value;
+  char name[MAX_HEADER_NAME_SIZE];
+  char value[MAX_HEADER_VALUE_SIZE];
   struct header *next;
 } header_t;
 
