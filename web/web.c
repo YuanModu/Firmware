@@ -50,9 +50,10 @@
 #define MAX_HEADER_COUNT 16
 #define MAX_HEADER_NAME_SIZE 32
 #define MAX_HEADER_VALUE_SIZE 128
-#define MAX_VIEW_PATH_SIZE 128
+#define MAX_JS_VALUE_SIZE 16
 #define MAX_REQUEST_URL_SIZE 128
 #define MAX_REQUEST_BODY_SIZE 1024
+#define MAX_VIEW_PATH_SIZE 128
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
 
@@ -107,6 +108,11 @@ typedef struct view {
 	struct view * (*post_handler)(struct view *);
 } view_t;
 
+typedef struct jspair {
+  char *name;
+  char *value;
+} jspair_t;
+
 static header_t headers[MAX_HEADER_COUNT];
 
 static const char *request_header_get(const char * c) {
@@ -148,9 +154,7 @@ static response_t *response = &(response_t) {
   .body = NULL,
 };
 
-static char js[256];
-
-static const char *method (method_t m) {
+static const char *method(method_t m) {
   static const char *methods[] = {
     [METHOD_NONE] = NULL,
     [GET] = "GET",
@@ -176,6 +180,22 @@ static const char *status(status_t s) {
     [NOT_FOUND_404] = "404 Not Found",
   };
   return status[s];
+}
+
+static char js[256];
+
+static jsmn_parser p;
+
+static jsmntok_t t[128];
+
+static void json_get(const char *raw) {
+  while (*raw != '{' && *raw != '\0') {
+    raw++;
+  }
+
+  size_t json_len = strcspn(raw, "}");
+  memcpy(js, raw, json_len + 1);
+  *(js + json_len + 1) = '\0';
 }
 
 static int jsoneq(const char *json, jsmntok_t *tok, const char *s) {
@@ -258,13 +278,29 @@ static view_t *http_handle_profile_post(view_t *view) {
     ,status(OK_200)
   );
 
+
+  json_get(request->body);
+
+  jsmn_init(&p);
+  int r = jsmn_parse(&p, js, strlen(js), t, ARRAY_SIZE(t));
+
+  jspair_t *pair = &(jspair_t){
+    .name = "user",
+    .value = (char [MAX_JS_VALUE_SIZE]) {'\0'},
+  };
+
+  for (int i=0; i<r; i++) {
+    if (jsoneq(js, &t[i], pair->name) == 0) {
+      memcpy(pair->value, (js + t[i + 1].start), (t[i + 1].end - t[i + 1].start));
+      i++;
+    }
+  }
   body_buffer->len= chsnprintf(body_buffer->data, MAX_BUFFER_SIZE,
     "{"
-    "\"Host\": \"%s\","
-    "\"UserAgent\": \"%s\""
+    "\"%s\": \"%s\""
     "}"
-    ,request_header_get("Host")
-    ,request_header_get("User-Agent")
+    ,pair->name
+    ,pair->value
   );
 
   response->head = head_buffer;
@@ -272,7 +308,6 @@ static view_t *http_handle_profile_post(view_t *view) {
   view->response = response;
   return view;
 }
-
 
 extern file_t file_index_html;
 extern file_t file_bootstrap_min_css;
@@ -404,12 +439,11 @@ static void http_server_serve(struct netconn *conn) {
   u16_t buflen;
   err_t err;
 
-  /* Read the data from the port, blocking if nothing yet there.
-   We assume the request (the part we care about) is in one netbuf */
   err = netconn_recv(conn, &inbuf);
 
   if (err == ERR_OK) {
     netbuf_data(inbuf, (void **)&buf, &buflen);
+    *(buf + buflen) = '\0';
     request_parse((const char *)buf);
 
     for (unsigned int i = 0; i < ARRAY_SIZE(views); i++) {
@@ -442,14 +476,8 @@ static void http_server_serve(struct netconn *conn) {
   netbuf_delete(inbuf);
 }
 
-/**
- * Stack area for the http thread.
- */
 THD_WORKING_AREA(wa_http_server, WEB_THREAD_STACK_SIZE);
 
-/**
- * HTTP server thread.
- */
 THD_FUNCTION(http_server, p) {
   struct netconn *conn, *newconn;
   err_t err;
@@ -479,6 +507,4 @@ THD_FUNCTION(http_server, p) {
   }
 }
 
-#endif /* LWIP_NETCONN */
-
-/** @} */
+#endif

@@ -1,3 +1,5 @@
 // $("button").click(function() {
-//   $.getJSON("/status")
+// 	$.post( "/profile", JSON.stringify({"user": "atila"}), function( data ) {
+//       console.log(data.user);
+//   }, "json");
 // })
