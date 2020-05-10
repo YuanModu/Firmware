@@ -51,30 +51,13 @@
 #define MAX_HEADER_NAME_SIZE 32
 #define MAX_HEADER_VALUE_SIZE 128
 #define MAX_JS_VALUE_SIZE 16
-#define MAX_REQUEST_URL_SIZE 128
 #define MAX_REQUEST_BODY_SIZE 1024
+#define MAX_REQUEST_URL_SIZE 128
+#define MAX_REQUEST_METHOD_SIZE 8
+#define MAX_REQUEST_PROTOCOL_SIZE 8
 #define MAX_VIEW_PATH_SIZE 128
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
-
-typedef enum method {
-  METHOD_NONE,
-  GET,
-  POST
-} method_t;
-
-typedef enum protocol {
-  PROTOCOL_NONE,
-  HTTP_1_0,
-  HTTP_1_1,
-  HTTP_2_0
-} protocol_t;
-
-typedef enum status {
-  STATUS_NONE,
-  OK_200,
-  NOT_FOUND_404
-} status_t;
 
 typedef struct string {
   char *data;
@@ -88,9 +71,9 @@ typedef struct header {
 } header_t;
 
 typedef struct request {
-  method_t method;
+  char *method;
   char *url;
-  protocol_t protocol;
+  char *protocol;
   header_t *headers;
   char *body;
 } request_t;
@@ -142,9 +125,9 @@ static string_t *file = &(string_t) {
 };
 
 static request_t *request = &(request_t) {
-  .method = METHOD_NONE,
+  .method = (char [MAX_REQUEST_METHOD_SIZE]) {},
   .url = (char [MAX_REQUEST_URL_SIZE]) {},
-  .protocol =  PROTOCOL_NONE,
+  .protocol = (char [MAX_REQUEST_PROTOCOL_SIZE]) {},
   .headers = NULL,
   .body = (char [MAX_REQUEST_BODY_SIZE]) {},
 };
@@ -153,34 +136,6 @@ static response_t *response = &(response_t) {
   .head = NULL,
   .body = NULL,
 };
-
-static const char *method(method_t m) {
-  static const char *methods[] = {
-    [METHOD_NONE] = NULL,
-    [GET] = "GET",
-    [POST] = "POST",
-  };
-  return methods[m];
-}
-
-static const char *protocol(protocol_t p) {
-  static const char *protocols[] = {
-    [PROTOCOL_NONE] = NULL,
-    [HTTP_1_0] = "HTTP/1.0",
-    [HTTP_1_1] = "HTTP/1.1",
-    [HTTP_2_0] = "HTTP/2.0",
-  };
-  return protocols[p];
-}
-
-static const char *status(status_t s) {
-  static const char *status[] = {
-    [STATUS_NONE] = NULL,
-    [OK_200] = "200 OK",
-    [NOT_FOUND_404] = "404 Not Found",
-  };
-  return status[s];
-}
 
 static char js[256];
 
@@ -195,7 +150,7 @@ static void json_get(const char *raw) {
 
   size_t json_len = strcspn(raw, "}");
   memcpy(js, raw, json_len + 1);
-  *(js + json_len + 1) = '\0';
+  js[json_len + 1] = '\0';
 }
 
 static int jsoneq(const char *json, jsmntok_t *tok, const char *s) {
@@ -208,12 +163,10 @@ static int jsoneq(const char *json, jsmntok_t *tok, const char *s) {
 
 static view_t *http_handle_static(view_t *view) {
   head_buffer->len = chsnprintf(head_buffer->data, MAX_BUFFER_SIZE,
-    "%s %s\r\n"
+    "HTTP/1.1 200\r\n"
     "Content-Type: %s\r\n"
     "Connection: close\r\n"
     "\r\n"
-    ,protocol(HTTP_1_1)
-    ,status(OK_200)
     ,view->file->type
   );
 
@@ -228,18 +181,14 @@ static view_t *http_handle_static(view_t *view) {
 
 static view_t *http_handle_status(view_t *view) {
   head_buffer->len = chsnprintf(head_buffer->data, MAX_BUFFER_SIZE,
-    "%s %s\r\n"
+    "HTTP/1.1 200\r\n"
     "Content-Type: application/json\r\n"
     "Connection: close\r\n"
     "\r\n"
-    ,protocol(HTTP_1_1)
-    ,status(OK_200)
   );
 
-  body_buffer->len= chsnprintf(body_buffer->data, MAX_BUFFER_SIZE
-    ,(const char *)view->file->data
-    ,protocol(HTTP_1_1)
-    ,status(OK_200)
+  body_buffer->len= chsnprintf(body_buffer->data, MAX_BUFFER_SIZE,
+    "Handle Status\r\n"
   );
 
   response->head = head_buffer;
@@ -250,16 +199,14 @@ static view_t *http_handle_status(view_t *view) {
 
 static view_t *http_handle_profile_get(view_t *view) {
   head_buffer->len = chsnprintf(head_buffer->data, MAX_BUFFER_SIZE,
-    "%s %s\r\n"
+    "HTTP/1.1 200\r\n"
     "Content-Type: application/json\r\n"
     "Connection: close\r\n"
     "\r\n"
-    ,protocol(HTTP_1_1)
-    ,status(OK_200)
   );
 
   body_buffer->len= chsnprintf(body_buffer->data, MAX_BUFFER_SIZE,
-    "Profile Get"
+    "Profile Get\r\n"
   );
 
   response->head = head_buffer;
@@ -270,12 +217,10 @@ static view_t *http_handle_profile_get(view_t *view) {
 
 static view_t *http_handle_profile_post(view_t *view) {
   head_buffer->len = chsnprintf(head_buffer->data, MAX_BUFFER_SIZE,
-    "%s %s\r\n"
+    "HTTP/1.1 200\r\n"
     "Content-Type: application/json\r\n"
     "Connection: close\r\n"
     "\r\n"
-    ,protocol(HTTP_1_1)
-    ,status(OK_200)
   );
 
 
@@ -292,6 +237,7 @@ static view_t *http_handle_profile_post(view_t *view) {
   for (int i=0; i<r; i++) {
     if (jsoneq(js, &t[i], pair->name) == 0) {
       memcpy(pair->value, (js + t[i + 1].start), (t[i + 1].end - t[i + 1].start));
+      pair->value[(t[i + 1].end - t[i + 1].start)] = '\0';
       i++;
     }
   }
@@ -375,12 +321,12 @@ static view_t views[] = {
 
 void request_parse(const char *raw) {
   size_t method_len = strcspn(raw, " ");
-  if (memcmp(raw, method(GET), strlen(method(GET))) == 0) {
-    request->method = GET;
-  } else if (memcmp(raw, method(POST), strlen(method(POST))) == 0) {
-    request->method = POST;
-  } else {
-    request->method = METHOD_NONE;
+  if (memcmp(raw, "GET", strlen("GET")) == 0) {
+    memcpy(request->method, "GET", strlen("GET"));
+    request->method[method_len] = '\0';
+  } else if (memcmp(raw, "POST", strlen("POST")) == 0) {
+    memcpy(request->method, "POST", strlen("POST"));
+    request->method[method_len] = '\0';
   }
   raw += method_len + 1;
 
@@ -390,14 +336,15 @@ void request_parse(const char *raw) {
   raw += url_len + 1;
 
   size_t protocol_len = strcspn(raw, "\r\n");
-  if (memcmp(raw, protocol(HTTP_1_0), strlen(protocol(HTTP_1_0))) == 0) {
-    request->protocol = HTTP_1_0;
-  } else if (memcmp(raw, protocol(HTTP_1_1), strlen(protocol(HTTP_1_1))) == 0) {
-    request->protocol = HTTP_1_1;
-  } else if (memcmp(raw, protocol(HTTP_2_0), strlen(protocol(HTTP_2_0))) == 0) {
-    request->protocol = HTTP_2_0;
-  } else {
-    request->protocol = PROTOCOL_NONE;
+  if (memcmp(raw, "HTTP/1.0", strlen("HTTP/1.0")) == 0) {
+    memcpy(request->protocol, "HTTP/1.0", strlen("HTTP/1.0"));
+    request->protocol[protocol_len] = '\0';
+  } else if (memcmp(raw, "HTTP/1.1", strlen("HTTP/1.1")) == 0) {
+    memcpy(request->protocol, "HTTP/1.1", strlen("HTTP/1.1"));
+    request->protocol[protocol_len] = '\0';
+  } else if (memcmp(raw, "HTTP/2.0", strlen("HTTP/2.0")) == 0) {
+    memcpy(request->protocol, "HTTP/2.0", strlen("HTTP/2.0"));
+    request->protocol[protocol_len] = '\0';
   }
   raw += protocol_len + 2;
 
@@ -443,16 +390,17 @@ static void http_server_serve(struct netconn *conn) {
 
   if (err == ERR_OK) {
     netbuf_data(inbuf, (void **)&buf, &buflen);
-    *(buf + buflen) = '\0';
+    buf[buflen] = '\0';
+
     request_parse((const char *)buf);
 
     for (unsigned int i = 0; i < ARRAY_SIZE(views); i++) {
-      if (!strcmp(request->url, views[i].path)) {
+      if (strcmp(request->url, views[i].path) == 0) {
         view_t *view = NULL;
-        if ((request->method == GET) && views[i].get_handler) {
+        if ((strcmp(request->method, "GET") == 0) && views[i].get_handler) {
           view = views[i].get_handler(&views[i]);
         }
-        if ((request->method == POST) && views[i].post_handler) {
+        if ((strcmp(request->method, "POST") == 0) && views[i].post_handler) {
           view = views[i].post_handler(&views[i]);
         }
         if (view){
