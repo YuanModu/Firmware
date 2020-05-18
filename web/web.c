@@ -98,17 +98,6 @@ typedef struct jspair {
 
 static header_t headers[MAX_HEADER_COUNT];
 
-static const char *request_header_get(const char * c) {
-  header_t *h = headers;
-  while (h) {
-    if (memcmp(h->name, c, strlen(c)) == 0) {
-      return h->value;
-    }
-    h = h->next;
-  }
-  return NULL;
-}
-
 static string_t *head_buffer = &(string_t) {
   .data = (char [MAX_BUFFER_SIZE]) {},
   .len = 0,
@@ -142,6 +131,17 @@ static char js[256];
 static jsmn_parser p;
 
 static jsmntok_t t[128];
+
+static const char *request_header_get(const char * c) {
+  header_t *h = headers;
+  while (h) {
+    if (memcmp(h->name, c, strlen(c)) == 0) {
+      return h->value;
+    }
+    h = h->next;
+  }
+  return NULL;
+}
 
 static void json_get(const char *raw) {
   while (*raw != '{' && *raw != '\0') {
