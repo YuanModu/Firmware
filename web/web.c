@@ -99,12 +99,12 @@ typedef struct jspair {
 static header_t headers[MAX_HEADER_COUNT];
 
 static string_t *head_buffer = &(string_t) {
-  .data = (char [MAX_BUFFER_SIZE]) {},
+  .data = (char [MAX_BUFFER_SIZE]) {0},
   .len = 0,
 };
 
 static string_t *body_buffer = &(string_t) {
-  .data = (char [MAX_BUFFER_SIZE]) {},
+  .data = (char [MAX_BUFFER_SIZE]) {0},
   .len = 0,
 };
 
@@ -114,11 +114,11 @@ static string_t *file = &(string_t) {
 };
 
 static request_t *request = &(request_t) {
-  .method = (char [MAX_REQUEST_METHOD_SIZE]) {},
-  .url = (char [MAX_REQUEST_URL_SIZE]) {},
-  .protocol = (char [MAX_REQUEST_PROTOCOL_SIZE]) {},
+  .method = (char [MAX_REQUEST_METHOD_SIZE]) {0},
+  .url = (char [MAX_REQUEST_URL_SIZE]) {0},
+  .protocol = (char [MAX_REQUEST_PROTOCOL_SIZE]) {0},
   .headers = NULL,
-  .body = (char [MAX_REQUEST_BODY_SIZE]) {},
+  .body = (char [MAX_REQUEST_BODY_SIZE]) {0},
 };
 
 static response_t *response = &(response_t) {
