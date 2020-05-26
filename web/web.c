@@ -65,8 +65,8 @@ typedef struct string {
 } string_t;
 
 typedef struct header {
-  char name[MAX_HEADER_NAME_SIZE];
-  char value[MAX_HEADER_VALUE_SIZE];
+  char *name;
+  char *value;
   struct header *next;
 } header_t;
 
@@ -96,15 +96,21 @@ typedef struct jspair {
   char *value;
 } jspair_t;
 
-static header_t headers[MAX_HEADER_COUNT];
+static header_t headers[] = {
+  [0 ... (MAX_HEADER_COUNT - 1)] = (header_t) {
+    .name = (char [MAX_HEADER_NAME_SIZE]) {'\0'},
+    .value = (char [MAX_HEADER_VALUE_SIZE]) {'\0'},
+    .next = NULL,
+  }
+};
 
 static string_t *head_buffer = &(string_t) {
-  .data = (char [MAX_BUFFER_SIZE]) {0},
+  .data = (char [MAX_BUFFER_SIZE]) {'\0'},
   .len = 0,
 };
 
 static string_t *body_buffer = &(string_t) {
-  .data = (char [MAX_BUFFER_SIZE]) {0},
+  .data = (char [MAX_BUFFER_SIZE]) {'\0'},
   .len = 0,
 };
 
@@ -114,11 +120,11 @@ static string_t *file = &(string_t) {
 };
 
 static request_t *request = &(request_t) {
-  .method = (char [MAX_REQUEST_METHOD_SIZE]) {0},
-  .url = (char [MAX_REQUEST_URL_SIZE]) {0},
-  .protocol = (char [MAX_REQUEST_PROTOCOL_SIZE]) {0},
+  .method = (char [MAX_REQUEST_METHOD_SIZE]) {'\0'},
+  .url = (char [MAX_REQUEST_URL_SIZE]) {'\0'},
+  .protocol = (char [MAX_REQUEST_PROTOCOL_SIZE]) {'\0'},
   .headers = NULL,
-  .body = (char [MAX_REQUEST_BODY_SIZE]) {0},
+  .body = (char [MAX_REQUEST_BODY_SIZE]) {'\0'},
 };
 
 static response_t *response = &(response_t) {
