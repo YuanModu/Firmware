@@ -127,6 +127,14 @@ int main(void) {
   chThdCreateStatic(wa_http_server, sizeof(wa_http_server), NORMALPRIO + 1,
                     http_server, NULL);
 
+  for (int i = 0; i < WEB_HELPER_THREADS; i++) {
+    chThdCreateStatic(wa_http_helper[i],
+                      sizeof(wa_http_helper[i]),
+                      NORMALPRIO + 2,
+                      http_helper,
+                      (void *)i);
+  }
+
   /*
    * Normal main() thread activity, handling shell start/exit.
    */

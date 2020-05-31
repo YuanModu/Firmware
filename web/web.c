@@ -46,16 +46,16 @@
 
 #if LWIP_NETCONN
 
-#define MAX_BUFFER_SIZE 256
-#define MAX_HEADER_COUNT 16
-#define MAX_HEADER_NAME_SIZE 32
-#define MAX_HEADER_VALUE_SIZE 128
-#define MAX_JS_VALUE_SIZE 16
-#define MAX_REQUEST_BODY_SIZE 1024
-#define MAX_REQUEST_URL_SIZE 128
-#define MAX_REQUEST_METHOD_SIZE 8
-#define MAX_REQUEST_PROTOCOL_SIZE 8
-#define MAX_VIEW_PATH_SIZE 128
+#define BUFFER_SIZE 256
+#define HEADER_COUNT 16
+#define HEADER_NAME_SIZE 32
+#define HEADER_VALUE_SIZE 128
+#define JS_VALUE_SIZE 16
+#define REQUEST_BODY_SIZE 1024
+#define REQUEST_URL_SIZE 128
+#define REQUEST_METHOD_SIZE 8
+#define REQUEST_PROTOCOL_SIZE 8
+#define VIEW_PATH_SIZE 128
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
 
@@ -84,7 +84,7 @@ typedef struct response {
 } response_t;
 
 typedef struct view {
-	char path[MAX_VIEW_PATH_SIZE];
+	char path[VIEW_PATH_SIZE];
   file_t *file;
   response_t *response;
 	struct view * (*get_handler)(struct view *);
@@ -97,20 +97,20 @@ typedef struct jspair {
 } jspair_t;
 
 static header_t headers[] = {
-  [0 ... (MAX_HEADER_COUNT - 1)] = (header_t) {
-    .name = (char [MAX_HEADER_NAME_SIZE]) {'\0'},
-    .value = (char [MAX_HEADER_VALUE_SIZE]) {'\0'},
+  [0 ... (HEADER_COUNT - 1)] = (header_t) {
+    .name = (char [HEADER_NAME_SIZE]) {'\0'},
+    .value = (char [HEADER_VALUE_SIZE]) {'\0'},
     .next = NULL,
   }
 };
 
 static string_t *head_buffer = &(string_t) {
-  .data = (char [MAX_BUFFER_SIZE]) {'\0'},
+  .data = (char [BUFFER_SIZE]) {'\0'},
   .len = 0,
 };
 
 static string_t *body_buffer = &(string_t) {
-  .data = (char [MAX_BUFFER_SIZE]) {'\0'},
+  .data = (char [BUFFER_SIZE]) {'\0'},
   .len = 0,
 };
 
@@ -120,11 +120,11 @@ static string_t *file = &(string_t) {
 };
 
 static request_t *request = &(request_t) {
-  .method = (char [MAX_REQUEST_METHOD_SIZE]) {'\0'},
-  .url = (char [MAX_REQUEST_URL_SIZE]) {'\0'},
-  .protocol = (char [MAX_REQUEST_PROTOCOL_SIZE]) {'\0'},
+  .method = (char [REQUEST_METHOD_SIZE]) {'\0'},
+  .url = (char [REQUEST_URL_SIZE]) {'\0'},
+  .protocol = (char [REQUEST_PROTOCOL_SIZE]) {'\0'},
   .headers = NULL,
-  .body = (char [MAX_REQUEST_BODY_SIZE]) {'\0'},
+  .body = (char [REQUEST_BODY_SIZE]) {'\0'},
 };
 
 static response_t *response = &(response_t) {
@@ -168,7 +168,7 @@ static int jsoneq(const char *json, jsmntok_t *tok, const char *s) {
 }
 
 static view_t *http_handle_static(view_t *view) {
-  head_buffer->len = chsnprintf(head_buffer->data, MAX_BUFFER_SIZE,
+  head_buffer->len = chsnprintf(head_buffer->data, BUFFER_SIZE,
     "HTTP/1.1 200\r\n"
     "Content-Type: %s\r\n"
     "Connection: close\r\n"
@@ -186,14 +186,14 @@ static view_t *http_handle_static(view_t *view) {
 }
 
 static view_t *http_handle_status(view_t *view) {
-  head_buffer->len = chsnprintf(head_buffer->data, MAX_BUFFER_SIZE,
+  head_buffer->len = chsnprintf(head_buffer->data, BUFFER_SIZE,
     "HTTP/1.1 200\r\n"
     "Content-Type: application/json\r\n"
     "Connection: close\r\n"
     "\r\n"
   );
 
-  body_buffer->len= chsnprintf(body_buffer->data, MAX_BUFFER_SIZE,
+  body_buffer->len= chsnprintf(body_buffer->data, BUFFER_SIZE,
     "Handle Status\r\n"
   );
 
@@ -204,14 +204,14 @@ static view_t *http_handle_status(view_t *view) {
 }
 
 static view_t *http_handle_profile_get(view_t *view) {
-  head_buffer->len = chsnprintf(head_buffer->data, MAX_BUFFER_SIZE,
+  head_buffer->len = chsnprintf(head_buffer->data, BUFFER_SIZE,
     "HTTP/1.1 200\r\n"
     "Content-Type: application/json\r\n"
     "Connection: close\r\n"
     "\r\n"
   );
 
-  body_buffer->len= chsnprintf(body_buffer->data, MAX_BUFFER_SIZE,
+  body_buffer->len= chsnprintf(body_buffer->data, BUFFER_SIZE,
     "Profile Get\r\n"
   );
 
@@ -222,7 +222,7 @@ static view_t *http_handle_profile_get(view_t *view) {
 }
 
 static view_t *http_handle_profile_post(view_t *view) {
-  head_buffer->len = chsnprintf(head_buffer->data, MAX_BUFFER_SIZE,
+  head_buffer->len = chsnprintf(head_buffer->data, BUFFER_SIZE,
     "HTTP/1.1 200\r\n"
     "Content-Type: application/json\r\n"
     "Connection: close\r\n"
@@ -237,7 +237,7 @@ static view_t *http_handle_profile_post(view_t *view) {
 
   jspair_t *pair = &(jspair_t){
     .name = "user",
-    .value = (char [MAX_JS_VALUE_SIZE]) {'\0'},
+    .value = (char [JS_VALUE_SIZE]) {'\0'},
   };
 
   for (int i=0; i<r; i++) {
@@ -247,7 +247,7 @@ static view_t *http_handle_profile_post(view_t *view) {
       i++;
     }
   }
-  body_buffer->len= chsnprintf(body_buffer->data, MAX_BUFFER_SIZE,
+  body_buffer->len= chsnprintf(body_buffer->data, BUFFER_SIZE,
     "{"
     "\"%s\": \"%s\""
     "}"
@@ -409,7 +409,7 @@ static void http_server_serve(struct netconn *conn) {
         if ((strcmp(request->method, "POST") == 0) && views[i].post_handler) {
           view = views[i].post_handler(&views[i]);
         }
-        if (view){
+        if (view) {
           netconn_write(conn,
                         view->response->head->data,
                         view->response->head->len,
@@ -428,6 +428,30 @@ static void http_server_serve(struct netconn *conn) {
   /* Delete the buffer (netconn_recv gives us ownership,
    so we have to make sure to deallocate the buffer) */
   netbuf_delete(inbuf);
+}
+
+mailbox_t mb[WEB_HELPER_THREADS];
+msg_t b[WEB_HELPER_THREADS][WEB_MAILBOX_SIZE];
+THD_WORKING_AREA(wa_http_helper[WEB_HELPER_THREADS], WEB_THREAD_STACK_SIZE);
+THD_FUNCTION(http_helper, p) {
+  int i = (int)p;
+  msg_t msg;
+
+  string_t *thread_name = &(string_t) {
+    .data = (char [16]) {'\0'},
+    .len = 0,
+  };
+  thread_name->len = chsnprintf(thread_name->data, 16, "http_%d", i);
+
+  chRegSetThreadName(thread_name->data);
+
+  chThdSetPriority(WEB_THREAD_PRIORITY - 1);
+
+  chMBObjectInit(&mb[i], b[i], WEB_HELPER_THREADS);
+
+  while (chThdShouldTerminateX() == false) {
+   chMBFetchTimeout(&mb[i], &msg, TIME_INFINITE);
+ }
 }
 
 THD_WORKING_AREA(wa_http_server, WEB_THREAD_STACK_SIZE);

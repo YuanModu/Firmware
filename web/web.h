@@ -33,15 +33,25 @@
 #endif
 
 #ifndef WEB_THREAD_PRIORITY
-#define WEB_THREAD_PRIORITY     (LOWPRIO + 2)
+#define WEB_THREAD_PRIORITY     (LOWPRIO + 3)
+#endif
+
+#ifndef WEB_MAILBOX_SIZE
+#define WEB_MAILBOX_SIZE 2
+#endif
+
+#ifndef WEB_HELPER_THREADS
+#define WEB_HELPER_THREADS 6
 #endif
 
 extern THD_WORKING_AREA(wa_http_server, WEB_THREAD_STACK_SIZE);
+extern THD_WORKING_AREA(wa_http_helper[WEB_HELPER_THREADS], WEB_THREAD_STACK_SIZE);
 
 #ifdef __cplusplus
 extern "C" {
 #endif
   THD_FUNCTION(http_server, p);
+  THD_FUNCTION(http_helper, p);
 #ifdef __cplusplus
 }
 #endif
